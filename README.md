@@ -60,3 +60,24 @@ The system includes a dedicated local browser player (`player_server.py`) with a
 python player_server.py
 ```
 Open **[http://localhost:8888](http://localhost:8888)** in your browser.
+
+---
+
+## 🚀 Next.js OTT-Grade Web Player (`web/`)
+
+A modern, high-performance Next.js OTT web player built with React, App Router, and TailwindCSS:
+
+### OTT Player Features:
+- **OTT Controls**: Clean, minimal cinema UI with **-5s** and **+5s** skip forward/backward buttons, keyboard shortcuts (`Space` to toggle play/pause, `←` / `→` for 5s jumps, `M` to mute, `F` for fullscreen).
+- **Dynamic Category Auto-Skip**: Toggles for individual categories (Nudity, Intimacy, Violence, Gunfire/Explosions, Blood/Gore, Smoking, Alcohol). The player dynamically unions and merges overlapping intervals on the fly.
+- **Color-Coded Violation Seekbar**: Visual color segments overlaid on the timeline with timestamps.
+- **HTTP 206 Partial Content Streaming**: Native Next.js API route (`/api/stream`) for video streaming and seeking.
+- **Local Video/Timeline File Pickers**: Switch video or custom category-wise `timeline.json` on demand.
+
+### Running Next.js Player:
+```bash
+cd web
+npm install
+npm run dev
+```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.

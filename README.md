@@ -40,3 +40,23 @@ python adult_moderation.py "path/to/video.mp4" --fps-sample 1.0 --output timelin
 - `--output`: Path to export structured timeline JSON (default: `timeline.json`).
 - `--clip-output`: Path to export raw CLIP text descriptions JSON (default: `clip_descriptions.json`).
 - `--output-video`: Target video file with embedded chapters (default: `[name]_with_chapters.mp4`).
+
+---
+
+## 🌐 Browser MP4 Smart Player with Custom Auto-Skip
+
+The system includes a dedicated local browser player (`player_server.py`) with a modern dark glassmorphism interface:
+
+### Player Highlights:
+- **Automatic Scene Skipping**: Automatically fast-forwards past detected violations as the video plays.
+- **Customizable Skip Settings**: Toggle buttons for each specific category (e.g. choose to auto-skip Nudity & Kissing, but allow Violence or Smoking).
+- **Master Auto-Skip Switch**: Turn automatic skipping on/off with one click.
+- **Visual Seekbar Segments**: Color-coded segments along the timeline bar showing where flagged scenes occur.
+- **Interactive Scene Navigator**: List of all detected scenes with timestamps and confidence scores. Click any scene to jump immediately.
+- **Local File Support**: Open any local video or custom `timeline.json` file directly inside the browser.
+
+### Starting the Player:
+```bash
+python player_server.py
+```
+Open **[http://localhost:8888](http://localhost:8888)** in your browser.

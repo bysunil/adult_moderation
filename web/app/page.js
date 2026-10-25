@@ -341,6 +341,7 @@ export default function SmartOTTPlayer() {
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      suppressHydrationWarning
       className="relative flex flex-col w-screen h-screen overflow-hidden bg-[#07090e] text-slate-100 select-none"
     >
       {/* Top OTT Header Overlay */}

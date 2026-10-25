@@ -26,7 +26,8 @@ import {
   Crosshair,
   Heart,
   EyeOff,
-  Skull
+  Skull,
+  Video
 } from 'lucide-react';
 
 // Category Configuration Registry
@@ -55,6 +56,7 @@ function formatTime(seconds) {
 export default function SmartOTTPlayer() {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
+  const fileInputRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
 
   // Playback States
@@ -68,8 +70,8 @@ export default function SmartOTTPlayer() {
 
   // Raw & Dynamic Data
   const [rawCategories, setRawCategories] = useState({});
-  const [videoSrc, setVideoSrc] = useState('/api/stream?file=ANIMAL_with_chapters.mp4');
-  const [videoTitle, setVideoTitle] = useState('ANIMAL_with_chapters.mp4');
+  const [videoSrc, setVideoSrc] = useState(null);
+  const [videoTitle, setVideoTitle] = useState('');
 
   // Filter & Skip Preferences
   const [masterAutoSkip, setMasterAutoSkip] = useState(true);
@@ -114,6 +116,7 @@ export default function SmartOTTPlayer() {
 
   // Update localStorage when filters change
   const handleToggleCategory = (catKey) => {
+    if (!masterAutoSkip) return; // Disabled when master auto-skip is OFF
     const updated = { ...categoryFilters, [catKey]: !categoryFilters[catKey] };
     setCategoryFilters(updated);
     localStorage.setItem('ott_category_filters', JSON.stringify(updated));
@@ -127,6 +130,9 @@ export default function SmartOTTPlayer() {
 
   // Dynamic Category-Wise Interval Merging Engine
   const mergedActiveTimeline = useMemo(() => {
+    // If no video is loaded or master auto-skip is OFF, no skip scenes are active
+    if (!videoSrc || !masterAutoSkip) return [];
+
     const activeEvents = [];
 
     for (const [catKey, isEnabled] of Object.entries(categoryFilters)) {
@@ -202,7 +208,7 @@ export default function SmartOTTPlayer() {
     });
 
     return merged;
-  }, [categoryFilters, rawCategories]);
+  }, [categoryFilters, rawCategories, videoSrc, masterAutoSkip]);
 
   // Video Time Update & Real-Time Auto-Skip Guard
   const handleTimeUpdate = useCallback(() => {
@@ -405,27 +411,60 @@ export default function SmartOTTPlayer() {
         </div>
       </header>
 
+      {/* Hidden File Input for Video Selection */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/mp4,video/webm"
+        className="hidden"
+        onChange={handleOpenLocalVideo}
+      />
+
       {/* Main Video Viewport */}
       <div className="relative flex items-center justify-center flex-1 w-full h-full bg-black">
-        <video
-          ref={videoRef}
-          src={videoSrc}
-          onClick={togglePlay}
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-          onEnded={() => setIsPlaying(false)}
-          className="object-contain w-full h-full"
-          playsInline
-        />
+        {videoSrc ? (
+          <>
+            <video
+              ref={videoRef}
+              src={videoSrc}
+              onClick={togglePlay}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
+              onEnded={() => setIsPlaying(false)}
+              className="object-contain w-full h-full"
+              playsInline
+            />
 
-        {/* Skip Toast Notification */}
-        {skipToast && (
-          <div className="absolute top-24 z-40 flex items-center gap-3 px-5 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-xl border border-red-500/40 text-white shadow-2xl shadow-red-950/60 animate-bounce">
-            <FastForward className="w-5 h-5 text-red-400" />
-            <div>
-              <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Auto-Skipped Scene</div>
-              <div className="text-sm font-semibold">{skipToast.title} <span className="text-slate-400 text-xs">({skipToast.range})</span></div>
+            {/* Skip Toast Notification */}
+            {skipToast && (
+              <div className="absolute top-24 z-40 flex items-center gap-3 px-5 py-2.5 rounded-xl bg-slate-900/90 backdrop-blur-xl border border-red-500/40 text-white shadow-2xl shadow-red-950/60 animate-bounce">
+                <FastForward className="w-5 h-5 text-red-400" />
+                <div>
+                  <div className="text-xs font-bold text-red-400 uppercase tracking-wider">Auto-Skipped Scene</div>
+                  <div className="text-sm font-semibold">{skipToast.title} <span className="text-slate-400 text-xs">({skipToast.range})</span></div>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Central OTT Open Video Card when no video is loaded */
+          <div className="flex flex-col items-center justify-center px-8 py-12 text-center max-w-md mx-auto rounded-3xl bg-slate-900/40 border border-white/10 backdrop-blur-2xl shadow-2xl shadow-black/80">
+            <div className="flex items-center justify-center w-20 h-20 mb-6 rounded-2xl bg-gradient-to-tr from-red-600/20 via-rose-500/10 to-transparent border border-red-500/30 text-rose-400 shadow-xl shadow-red-950/40">
+              <Video className="w-10 h-10" />
             </div>
+
+            <h2 className="text-2xl font-bold tracking-tight text-white mb-2">No Video Selected</h2>
+            <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+              Open an MP4 or WebM video file from your computer to start playback with AI auto-moderation guard.
+            </p>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-3 px-6 py-3.5 text-sm font-bold text-white transition-all rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-lg shadow-red-600/40 hover:shadow-red-600/60 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <FolderOpen className="w-5 h-5" />
+              <span>Open Video File</span>
+            </button>
           </div>
         )}
       </div>
@@ -605,10 +644,17 @@ export default function SmartOTTPlayer() {
 
           {/* Granular Category Toggles */}
           <div className="flex-1 p-4 overflow-y-auto space-y-2">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Content Categories</div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Content Categories</span>
+              {!masterAutoSkip && (
+                <span className="text-[10px] font-semibold text-amber-400 bg-amber-950/60 border border-amber-500/30 px-2 py-0.5 rounded">
+                  Disabled by Master Switch
+                </span>
+              )}
+            </div>
 
             {Object.entries(CATEGORY_REGISTRY).map(([catKey, config]) => {
-              const isChecked = !!categoryFilters[catKey];
+              const isChecked = !!categoryFilters[catKey] && masterAutoSkip;
               const catData = rawCategories[catKey];
               const count = catData ? catData.intervals?.length || 0 : 0;
               const Icon = config.icon;
@@ -616,7 +662,11 @@ export default function SmartOTTPlayer() {
               return (
                 <div
                   key={catKey}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 hover:bg-white/10 transition border border-white/5"
+                  className={`flex items-center justify-between p-2.5 rounded-xl transition border ${
+                    masterAutoSkip
+                      ? 'bg-white/5 hover:bg-white/10 border-white/5 opacity-100'
+                      : 'bg-white/[0.02] border-white/5 opacity-40 cursor-not-allowed'
+                  }`}
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -628,15 +678,20 @@ export default function SmartOTTPlayer() {
                     <div>
                       <div className="text-xs font-semibold text-slate-200">{config.name}</div>
                       <div className="text-[10px] text-slate-400">
-                        {count} detected in timeline
+                        {videoSrc ? `${count} detected in timeline` : 'No video loaded'}
                       </div>
                     </div>
                   </div>
 
                   <button
+                    disabled={!masterAutoSkip}
                     onClick={() => handleToggleCategory(catKey)}
                     className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      isChecked ? 'bg-blue-600' : 'bg-slate-700'
+                      !masterAutoSkip
+                        ? 'bg-slate-800 cursor-not-allowed'
+                        : isChecked
+                        ? 'bg-blue-600'
+                        : 'bg-slate-700'
                     }`}
                   >
                     <span

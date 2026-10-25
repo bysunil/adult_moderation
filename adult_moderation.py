@@ -518,9 +518,35 @@ def process_video_moderation_full(
             if active_events[k] is not None:
                 close_event(k)
 
-        # Merge ALL overlapping intervals across categories
+        # 1. Merge adjacent splits of same category (raw category intervals)
+        category_merged_timeline = merge_adjacent_events(raw_timeline, max_merge_gap_sec=bridge_gap_sec)
+
+        # 2. Build Category-Wise Timeline mapping
+        # Each category key contains its list of continuous intervals
+        category_timeline: Dict[str, Dict[str, Any]] = {}
+        for cat_key in all_tracked_keys:
+            cat_display = CATEGORY_LABELS.get(cat_key, cat_key)
+            intervals = [
+                {
+                    "start_time": ev["start_time"],
+                    "end_time": ev["end_time"],
+                    "duration_sec": format_seconds(ev["end_time"] - ev["start_time"]),
+                    "peak_confidence": ev["peak_confidence"],
+                }
+                for ev in category_merged_timeline if ev["raw_label"] == cat_key
+            ]
+            if intervals:
+                category_timeline[cat_key] = {
+                    "category_name": cat_display,
+                    "raw_label": cat_key,
+                    "interval_count": len(intervals),
+                    "intervals": intervals,
+                }
+
+        # 3. Merged overarching master scenes across overlapping categories for chapter embedding
         consolidated_timeline = merge_overlapping_intervals(raw_timeline, tolerance_sec=bridge_gap_sec)
-        print(f"\n[Timeline Consolidation] Merged overlapping violations into {len(consolidated_timeline)} unified parent scenes.")
+        print(f"\n[Timeline Consolidation] Categorized {len(category_merged_timeline)} events into {len(category_timeline)} categories.")
+        print(f"[Timeline Consolidation] Merged into {len(consolidated_timeline)} unified master scenes.")
 
         # Embed continuous chapters across entire video timeline
         if embed_chapters:
@@ -532,11 +558,23 @@ def process_video_moderation_full(
                 total_duration_sec=duration_sec,
             )
 
+        # Export Category-Wise Timeline JSON (with master consolidated scenes metadata)
         if output_json_path:
             out_file = Path(output_json_path)
             out_file.parent.mkdir(parents=True, exist_ok=True)
+            export_payload = {
+                "video_metadata": {
+                    "video_path": str(video_path),
+                    "fps": round(video_fps, 2),
+                    "total_frames": total_frames,
+                    "duration_sec": format_seconds(duration_sec),
+                },
+                "categories": category_timeline,
+                "unified_scenes": consolidated_timeline,
+            }
             with open(out_file, "w", encoding="utf-8") as f:
-                json.dump(consolidated_timeline, f, indent=2)
+                json.dump(export_payload, f, indent=2)
+            print(f"[Timeline Data] Exported category-wise timeline into '{out_file}'!")
 
         # Save detailed raw CLIP model descriptions JSON if requested
         if output_clip_json_path:

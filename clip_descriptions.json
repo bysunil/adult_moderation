@@ -642,9 +642,9 @@
   {
     "timestamp_sec": 40.0,
     "top_description": "a photo of passionate kissing or romantic intimacy",
-    "top_confidence": 0.8882,
+    "top_confidence": 0.8881,
     "all_prompt_scores": {
-      "a photo of passionate kissing or romantic intimacy": 0.8882,
+      "a photo of passionate kissing or romantic intimacy": 0.8881,
       "a photo of sensual foreplay or sexual act": 0.0379,
       "a photo of nudity, bare skin, naked body or undressing": 0.0011,
       "a photo of a regular movie scene or normal conversation with clothed people": 0.0149,

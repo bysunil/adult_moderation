@@ -1,466 +1,280 @@
 {
   "video_metadata": {
-    "video_path": "ANIMAL_with_chapters.mp4",
-    "duration_sec": 248.33
+    "video_path": "C:\\Users\\sunil\\Downloads\\ANIMAL_ Evarevaro.mp4",
+    "fps": 24.0,
+    "total_frames": 5960,
+    "duration_sec": 248.333
   },
   "categories": {
-    "BELLY_EXPOSED": {
-      "category_name": "BELLY_EXPOSED",
-      "raw_label": "BELLY_EXPOSED",
-      "interval_count": 4,
-      "intervals": [
-        {
-          "start_time": 12.0,
-          "end_time": 13.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.4584
-        },
-        {
-          "start_time": 97.0,
-          "end_time": 98.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.5465
-        },
-        {
-          "start_time": 106.0,
-          "end_time": 109.0,
-          "duration_sec": 3.0,
-          "peak_confidence": 0.5131
-        },
-        {
-          "start_time": 243.0,
-          "end_time": 244.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.6584
-        }
-      ]
-    },
-    "FEMALE_BREAST_EXPOSED": {
-      "category_name": "FEMALE_BREAST_EXPOSED",
-      "raw_label": "FEMALE_BREAST_EXPOSED",
-      "interval_count": 3,
-      "intervals": [
-        {
-          "start_time": 25.0,
-          "end_time": 119.0,
-          "duration_sec": 94.0,
-          "peak_confidence": 0.9892
-        },
-        {
-          "start_time": 129.0,
-          "end_time": 151.0,
-          "duration_sec": 22.0,
-          "peak_confidence": 0.9975
-        },
-        {
-          "start_time": 194.0,
-          "end_time": 206.0,
-          "duration_sec": 12.0,
-          "peak_confidence": 0.984
-        }
-      ]
-    },
-    "INTIMATE_SCENE": {
-      "category_name": "INTIMATE_SCENE",
-      "raw_label": "INTIMATE_SCENE",
-      "interval_count": 7,
-      "intervals": [
-        {
-          "start_time": 25.0,
-          "end_time": 28.0,
-          "duration_sec": 3.0,
-          "peak_confidence": 0.8434
-        },
-        {
-          "start_time": 41.0,
-          "end_time": 63.0,
-          "duration_sec": 22.0,
-          "peak_confidence": 0.9722
-        },
-        {
-          "start_time": 69.0,
-          "end_time": 119.0,
-          "duration_sec": 50.0,
-          "peak_confidence": 0.9882
-        },
-        {
-          "start_time": 132.0,
-          "end_time": 137.0,
-          "duration_sec": 5.0,
-          "peak_confidence": 0.9675
-        },
-        {
-          "start_time": 155.0,
-          "end_time": 156.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.6351
-        },
-        {
-          "start_time": 162.0,
-          "end_time": 174.0,
-          "duration_sec": 12.0,
-          "peak_confidence": 0.8193
-        },
-        {
-          "start_time": 194.0,
-          "end_time": 206.0,
-          "duration_sec": 12.0,
-          "peak_confidence": 0.984
-        }
-      ]
-    },
     "ROMANCE_KISS": {
-      "category_name": "ROMANCE_KISS",
+      "category_name": "Kissing / Romantic Intimacy",
       "raw_label": "ROMANCE_KISS",
       "interval_count": 7,
       "intervals": [
         {
-          "start_time": 25.0,
-          "end_time": 42.0,
-          "duration_sec": 17.0,
+          "start_time": 24.833,
+          "end_time": 42.042,
+          "duration_sec": 17.209,
           "peak_confidence": 0.9892
         },
         {
-          "start_time": 51.0,
-          "end_time": 93.0,
-          "duration_sec": 42.0,
+          "start_time": 50.5,
+          "end_time": 93.042,
+          "duration_sec": 42.542,
           "peak_confidence": 0.9828
         },
         {
-          "start_time": 99.0,
-          "end_time": 105.0,
-          "duration_sec": 6.0,
+          "start_time": 98.5,
+          "end_time": 105.042,
+          "duration_sec": 6.542,
           "peak_confidence": 0.8243
         },
         {
-          "start_time": 111.0,
-          "end_time": 113.0,
-          "duration_sec": 2.0,
-          "peak_confidence": 0.616
+          "start_time": 110.667,
+          "end_time": 113.042,
+          "duration_sec": 2.375,
+          "peak_confidence": 0.624
         },
         {
           "start_time": 135.0,
-          "end_time": 136.0,
-          "duration_sec": 1.0,
+          "end_time": 136.042,
+          "duration_sec": 1.042,
           "peak_confidence": 0.6115
         },
         {
-          "start_time": 167.0,
-          "end_time": 169.0,
-          "duration_sec": 2.0,
+          "start_time": 166.667,
+          "end_time": 169.042,
+          "duration_sec": 2.375,
           "peak_confidence": 0.72
         },
         {
-          "start_time": 201.0,
-          "end_time": 203.0,
-          "duration_sec": 2.0,
-          "peak_confidence": 0.6437
-        }
-      ]
-    },
-    "BUTTOCKS_EXPOSED": {
-      "category_name": "BUTTOCKS_EXPOSED",
-      "raw_label": "BUTTOCKS_EXPOSED",
-      "interval_count": 1,
-      "intervals": [
-        {
-          "start_time": 75.0,
-          "end_time": 93.0,
-          "duration_sec": 18.0,
-          "peak_confidence": 0.589
-        }
-      ]
-    },
-    "SMOKING": {
-      "category_name": "SMOKING",
-      "raw_label": "SMOKING",
-      "interval_count": 3,
-      "intervals": [
-        {
-          "start_time": 139.0,
-          "end_time": 150.0,
-          "duration_sec": 11.0,
-          "peak_confidence": 0.9975
-        },
-        {
-          "start_time": 157.0,
-          "end_time": 158.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.6489
-        },
-        {
-          "start_time": 177.0,
-          "end_time": 185.0,
-          "duration_sec": 8.0,
-          "peak_confidence": 0.891
+          "start_time": 200.0,
+          "end_time": 203.042,
+          "duration_sec": 3.042,
+          "peak_confidence": 0.856
         }
       ]
     },
     "VIOLENCE": {
-      "category_name": "VIOLENCE",
+      "category_name": "Violence / Physical Fight",
       "raw_label": "VIOLENCE",
       "interval_count": 4,
       "intervals": [
         {
           "start_time": 150.0,
-          "end_time": 151.0,
-          "duration_sec": 1.0,
+          "end_time": 151.042,
+          "duration_sec": 1.042,
           "peak_confidence": 0.6322
         },
         {
-          "start_time": 155.0,
-          "end_time": 185.0,
-          "duration_sec": 30.0,
-          "peak_confidence": 0.891
+          "start_time": 159.667,
+          "end_time": 161.042,
+          "duration_sec": 1.375,
+          "peak_confidence": 0.8733
         },
         {
-          "start_time": 160.0,
-          "end_time": 161.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.6329
+          "start_time": 179.0,
+          "end_time": 180.208,
+          "duration_sec": 1.208,
+          "peak_confidence": 0.6786
         },
         {
-          "start_time": 237.0,
-          "end_time": 238.0,
-          "duration_sec": 1.0,
+          "start_time": 236.833,
+          "end_time": 238.042,
+          "duration_sec": 1.209,
           "peak_confidence": 0.7831
         }
       ]
     },
     "BLOOD_GORE": {
-      "category_name": "BLOOD_GORE",
+      "category_name": "Blood / Gore / Injury",
       "raw_label": "BLOOD_GORE",
       "interval_count": 1,
       "intervals": [
         {
-          "start_time": 205.0,
-          "end_time": 206.0,
-          "duration_sec": 1.0,
-          "peak_confidence": 0.9411
+          "start_time": 204.167,
+          "end_time": 206.042,
+          "duration_sec": 1.875,
+          "peak_confidence": 0.9729
+        }
+      ]
+    },
+    "SMOKING": {
+      "category_name": "Cigarette / Tobacco Smoking",
+      "raw_label": "SMOKING",
+      "interval_count": 3,
+      "intervals": [
+        {
+          "start_time": 138.5,
+          "end_time": 150.042,
+          "duration_sec": 11.542,
+          "peak_confidence": 0.9975
+        },
+        {
+          "start_time": 157.0,
+          "end_time": 158.042,
+          "duration_sec": 1.042,
+          "peak_confidence": 0.6489
+        },
+        {
+          "start_time": 176.333,
+          "end_time": 185.042,
+          "duration_sec": 8.709,
+          "peak_confidence": 0.891
+        }
+      ]
+    },
+    "INTIMATE_SCENE": {
+      "category_name": "Intimate / NSFW Scene",
+      "raw_label": "INTIMATE_SCENE",
+      "interval_count": 2,
+      "intervals": [
+        {
+          "start_time": 94.833,
+          "end_time": 109.042,
+          "duration_sec": 14.209,
+          "peak_confidence": 0.9983
+        },
+        {
+          "start_time": 193.5,
+          "end_time": 197.042,
+          "duration_sec": 3.542,
+          "peak_confidence": 0.9455
         }
       ]
     }
   },
   "unified_scenes": [
     {
-      "content_type": "Bareback / Exposed Midriff",
-      "raw_label": "BELLY_EXPOSED",
-      "start_time": 12.0,
-      "end_time": 13.0,
-      "peak_confidence": 0.4584,
+      "content_type": "Kissing / Romantic Intimacy",
+      "raw_label": "ROMANCE_KISS",
+      "start_time": 24.833,
+      "end_time": 42.042,
+      "peak_confidence": 0.9892,
       "sub_events": []
     },
     {
-      "content_type": "Exposed Breast / Nipple",
-      "raw_label": "FEMALE_BREAST_EXPOSED",
-      "start_time": 25.0,
-      "end_time": 119.0,
-      "peak_confidence": 0.9892,
+      "content_type": "Intimate / NSFW Scene",
+      "raw_label": "INTIMATE_SCENE",
+      "start_time": 50.5,
+      "end_time": 113.042,
+      "peak_confidence": 0.9983,
       "sub_events": [
         {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 25.0,
-          "end_time": 28.0,
-          "peak_confidence": 0.8434
-        },
-        {
           "content_type": "Kissing / Romantic Intimacy",
           "raw_label": "ROMANCE_KISS",
-          "start_time": 25.0,
-          "end_time": 42.0,
-          "peak_confidence": 0.9892
-        },
-        {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 41.0,
-          "end_time": 63.0,
-          "peak_confidence": 0.9722
-        },
-        {
-          "content_type": "Kissing / Romantic Intimacy",
-          "raw_label": "ROMANCE_KISS",
-          "start_time": 51.0,
-          "end_time": 93.0,
+          "start_time": 50.5,
+          "end_time": 93.042,
           "peak_confidence": 0.9828
         },
         {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 69.0,
-          "end_time": 119.0,
-          "peak_confidence": 0.9882
-        },
-        {
-          "content_type": "Exposed Buttocks",
-          "raw_label": "BUTTOCKS_EXPOSED",
-          "start_time": 75.0,
-          "end_time": 93.0,
-          "peak_confidence": 0.589
-        },
-        {
-          "content_type": "Bareback / Exposed Midriff",
-          "raw_label": "BELLY_EXPOSED",
-          "start_time": 97.0,
-          "end_time": 98.0,
-          "peak_confidence": 0.5465
-        },
-        {
           "content_type": "Kissing / Romantic Intimacy",
           "raw_label": "ROMANCE_KISS",
-          "start_time": 99.0,
-          "end_time": 105.0,
+          "start_time": 98.5,
+          "end_time": 105.042,
           "peak_confidence": 0.8243
         },
         {
-          "content_type": "Bareback / Exposed Midriff",
-          "raw_label": "BELLY_EXPOSED",
-          "start_time": 106.0,
-          "end_time": 109.0,
-          "peak_confidence": 0.5131
-        },
-        {
           "content_type": "Kissing / Romantic Intimacy",
           "raw_label": "ROMANCE_KISS",
-          "start_time": 111.0,
-          "end_time": 113.0,
-          "peak_confidence": 0.616
+          "start_time": 110.667,
+          "end_time": 113.042,
+          "peak_confidence": 0.624
         }
       ]
     },
     {
-      "content_type": "Exposed Breast / Nipple",
-      "raw_label": "FEMALE_BREAST_EXPOSED",
-      "start_time": 129.0,
-      "end_time": 151.0,
+      "content_type": "Violence / Physical Fight",
+      "raw_label": "VIOLENCE",
+      "start_time": 135.0,
+      "end_time": 151.042,
       "peak_confidence": 0.9975,
       "sub_events": [
-        {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 132.0,
-          "end_time": 137.0,
-          "peak_confidence": 0.9675
-        },
         {
           "content_type": "Kissing / Romantic Intimacy",
           "raw_label": "ROMANCE_KISS",
           "start_time": 135.0,
-          "end_time": 136.0,
+          "end_time": 136.042,
           "peak_confidence": 0.6115
         },
         {
           "content_type": "Cigarette / Tobacco Smoking",
           "raw_label": "SMOKING",
-          "start_time": 139.0,
-          "end_time": 150.0,
+          "start_time": 138.5,
+          "end_time": 150.042,
           "peak_confidence": 0.9975
-        },
-        {
-          "content_type": "Violence / Physical Fight",
-          "raw_label": "VIOLENCE",
-          "start_time": 150.0,
-          "end_time": 151.0,
-          "peak_confidence": 0.6322
         }
       ]
     },
     {
       "content_type": "Violence / Physical Fight",
       "raw_label": "VIOLENCE",
-      "start_time": 155.0,
-      "end_time": 185.0,
-      "peak_confidence": 0.891,
+      "start_time": 157.0,
+      "end_time": 161.042,
+      "peak_confidence": 0.8733,
       "sub_events": [
-        {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 155.0,
-          "end_time": 156.0,
-          "peak_confidence": 0.6351
-        },
         {
           "content_type": "Cigarette / Tobacco Smoking",
           "raw_label": "SMOKING",
           "start_time": 157.0,
-          "end_time": 158.0,
+          "end_time": 158.042,
           "peak_confidence": 0.6489
-        },
-        {
-          "content_type": "Violence / Physical Fight",
-          "raw_label": "VIOLENCE",
-          "start_time": 160.0,
-          "end_time": 161.0,
-          "peak_confidence": 0.6329
-        },
-        {
-          "content_type": "Intimate / NSFW Scene",
-          "raw_label": "INTIMATE_SCENE",
-          "start_time": 162.0,
-          "end_time": 174.0,
-          "peak_confidence": 0.8193
-        },
-        {
-          "content_type": "Kissing / Romantic Intimacy",
-          "raw_label": "ROMANCE_KISS",
-          "start_time": 167.0,
-          "end_time": 169.0,
-          "peak_confidence": 0.72
-        },
+        }
+      ]
+    },
+    {
+      "content_type": "Kissing / Romantic Intimacy",
+      "raw_label": "ROMANCE_KISS",
+      "start_time": 166.667,
+      "end_time": 169.042,
+      "peak_confidence": 0.72,
+      "sub_events": []
+    },
+    {
+      "content_type": "Violence / Physical Fight",
+      "raw_label": "VIOLENCE",
+      "start_time": 176.333,
+      "end_time": 185.042,
+      "peak_confidence": 0.891,
+      "sub_events": [
         {
           "content_type": "Cigarette / Tobacco Smoking",
           "raw_label": "SMOKING",
-          "start_time": 177.0,
-          "end_time": 185.0,
+          "start_time": 176.333,
+          "end_time": 185.042,
           "peak_confidence": 0.891
         }
       ]
     },
     {
-      "content_type": "Exposed Breast / Nipple",
-      "raw_label": "FEMALE_BREAST_EXPOSED",
-      "start_time": 194.0,
-      "end_time": 206.0,
-      "peak_confidence": 0.984,
+      "content_type": "Blood / Gore / Injury",
+      "raw_label": "BLOOD_GORE",
+      "start_time": 193.5,
+      "end_time": 206.042,
+      "peak_confidence": 0.9729,
       "sub_events": [
         {
           "content_type": "Intimate / NSFW Scene",
           "raw_label": "INTIMATE_SCENE",
-          "start_time": 194.0,
-          "end_time": 206.0,
-          "peak_confidence": 0.984
+          "start_time": 193.5,
+          "end_time": 197.042,
+          "peak_confidence": 0.9455
         },
         {
           "content_type": "Kissing / Romantic Intimacy",
           "raw_label": "ROMANCE_KISS",
-          "start_time": 201.0,
-          "end_time": 203.0,
-          "peak_confidence": 0.6437
-        },
-        {
-          "content_type": "Blood / Gore / Injury",
-          "raw_label": "BLOOD_GORE",
-          "start_time": 205.0,
-          "end_time": 206.0,
-          "peak_confidence": 0.9411
+          "start_time": 200.0,
+          "end_time": 203.042,
+          "peak_confidence": 0.856
         }
       ]
     },
     {
       "content_type": "Violence / Physical Fight",
       "raw_label": "VIOLENCE",
-      "start_time": 237.0,
-      "end_time": 238.0,
+      "start_time": 236.833,
+      "end_time": 238.042,
       "peak_confidence": 0.7831,
-      "sub_events": []
-    },
-    {
-      "content_type": "Bareback / Exposed Midriff",
-      "raw_label": "BELLY_EXPOSED",
-      "start_time": 243.0,
-      "end_time": 244.0,
-      "peak_confidence": 0.6584,
       "sub_events": []
     }
   ]

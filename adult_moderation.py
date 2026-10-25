@@ -307,7 +307,10 @@ def process_video_moderation_full(
     bridge_gap_sec: float = 3.5,
     min_duration_sec: float = 0.5,
     include_covered: bool = True,
-    use_clip: bool = True,
+    use_scene_model: bool = True,
+    use_nudenet_model: bool = True,
+    use_clip_model: bool = True,
+    clip_batch_size: int = 16,
     embed_chapters: bool = True,
     output_video_path: Optional[str | Path] = None,
     output_json_path: Optional[str | Path] = None,
@@ -316,6 +319,11 @@ def process_video_moderation_full(
     video_path = Path(video_path)
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found at: {video_path}")
+
+    # Backward compatibility: if use_clip was passed or models all disabled
+    if not (use_scene_model or use_nudenet_model or use_clip_model):
+        print("[Warning] No models selected! Enabling CLIP by default.")
+        use_clip_model = True
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -335,20 +343,33 @@ def process_video_moderation_full(
         max_gap_steps = max(2, round(bridge_gap_sec * sample_rate_fps))
 
         print(f"[Sampling Strategy] Rate: {sample_rate_fps:.1f} FPS (every {frame_step} frames). Smoothing: {bridge_gap_sec}s.")
+        print(f"[Active Models] Scene Classifier: {use_scene_model} | NudeNet Detector: {use_nudenet_model} | OpenCLIP: {use_clip_model} (Batch Size: {clip_batch_size})")
 
-        print("[Model Loading] 1/3: Initializing Falconsai NSFW Scene Classifier...")
-        scene_pipe = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=-1)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        print("[Model Loading] 2/3: Initializing NudeNet Anatomical Part Detector...")
-        part_detector = NudeDetector()
+        scene_pipe = None
+        if use_scene_model:
+            print("[Model Loading] 1/3: Initializing Falconsai NSFW Scene Classifier...")
+            scene_device = 0 if device == "cuda" else -1
+            scene_pipe = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=scene_device)
+        else:
+            print("[Model Loading] 1/3: Falconsai NSFW Scene Classifier [DISABLED]")
 
-        clip_model, clip_preprocess, clip_text_tokens = None, None, None
+        part_detector = None
+        if use_nudenet_model:
+            print("[Model Loading] 2/3: Initializing NudeNet Anatomical Part Detector...")
+            part_detector = NudeDetector()
+        else:
+            print("[Model Loading] 2/3: NudeNet Anatomical Part Detector [DISABLED]")
+
+        clip_model, clip_preprocess, clip_text_features, prompt_texts = None, None, None, []
         clip_logs: List[Dict[str, Any]] = []
-        if use_clip:
-            print("[Model Loading] 3/3: Initializing OpenCLIP ViT-B-32 Vision-Language Engine...")
+        if use_clip_model:
+            print(f"[Model Loading] 3/3: Initializing OpenCLIP ViT-B-32 Vision-Language Engine on {device.upper()}...")
             clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
                 "ViT-B-32", pretrained="laion2b_s34b_b79k"
             )
+            clip_model = clip_model.to(device)
             clip_model.eval()
             tokenizer = open_clip.get_tokenizer("ViT-B-32")
             prompt_texts = [
@@ -362,12 +383,14 @@ def process_video_moderation_full(
                 "a photo of smoking a cigarette, cigar, vape, exhaling smoke, cigarette in mouth, holding a cigarette or lighter",
                 "a photo of drinking alcohol, wine, beer, whiskey, holding an alcoholic drink or liquor bottle",
             ]
-            clip_text_tokens = tokenizer(prompt_texts)
+            clip_text_tokens = tokenizer(prompt_texts).to(device)
             with torch.no_grad():
                 clip_text_features = clip_model.encode_text(clip_text_tokens)
                 clip_text_features /= clip_text_features.norm(dim=-1, keepdim=True)
+        else:
+            print("[Model Loading] 3/3: OpenCLIP Vision-Language Engine [DISABLED]")
 
-        print("[Model Loading] All models successfully loaded.\n")
+        print("[Model Loading] Initialized models successfully.\n")
 
         # Strictly bare skin / exposed anatomical parts (never fully clothed)
         tracked_part_keys = [
@@ -378,8 +401,10 @@ def process_video_moderation_full(
             "BELLY_EXPOSED",
         ]
 
-        all_tracked_keys = ["INTIMATE_SCENE"]
-        if use_clip:
+        all_tracked_keys = []
+        if use_scene_model:
+            all_tracked_keys.append("INTIMATE_SCENE")
+        if use_clip_model:
             all_tracked_keys.extend([
                 "ROMANCE_KISS",
                 "VIOLENCE",
@@ -388,7 +413,11 @@ def process_video_moderation_full(
                 "SMOKING",
                 "ALCOHOL",
             ])
-        all_tracked_keys.extend(tracked_part_keys)
+            # If scene classifier is off, CLIP prompt 2 ("a photo of nudity, bare skin, naked body...") can also flag INTIMATE_SCENE
+            if "INTIMATE_SCENE" not in all_tracked_keys:
+                all_tracked_keys.append("INTIMATE_SCENE")
+        if use_nudenet_model:
+            all_tracked_keys.extend(tracked_part_keys)
 
         active_events: Dict[str, Optional[ActiveEvent]] = {k: None for k in all_tracked_keys}
         raw_timeline: List[Dict[str, Any]] = []
@@ -421,88 +450,113 @@ def process_video_moderation_full(
         samples_processed = 0
         start_time = time.time()
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+        # Batch container for sampled frames
+        batch_items: List[Dict[str, Any]] = []
 
-            if frame_idx % frame_step == 0:
+        def process_batch(items: List[Dict[str, Any]]) -> None:
+            nonlocal samples_processed
+            if not items:
+                return
+
+            batch_count = len(items)
+
+            # 1. OpenCLIP Batch Inference (Batched Tensor encoding)
+            clip_batch_results = []
+            if use_clip_model and clip_model is not None and clip_preprocess is not None:
+                # Stack preprocessed PIL images into a single chunk/tensor
+                tensors = [clip_preprocess(it["pil_img"]) for it in items]
+                batch_tensor = torch.stack(tensors).to(device)
+
+                with torch.no_grad():
+                    image_features = clip_model.encode_image(batch_tensor)
+                    image_features /= image_features.norm(dim=-1, keepdim=True)
+                    # Batch matrix multiplication: (B x D) @ (D x T) -> (B x T)
+                    similarity_matrix = (100.0 * image_features @ clip_text_features.T).softmax(dim=-1).cpu().tolist()
+
+                for i, it in enumerate(items):
+                    sim = similarity_matrix[i]
+                    scores_by_prompt = {prompt: round(float(sim[p_idx]), 4) for p_idx, prompt in enumerate(prompt_texts)}
+                    best_match = max(scores_by_prompt.items(), key=lambda x: x[1])
+
+                    curr_sec = format_seconds(it["frame_idx"] / video_fps)
+                    clip_logs.append({
+                        "timestamp_sec": curr_sec,
+                        "top_description": best_match[0],
+                        "top_confidence": best_match[1],
+                        "all_prompt_scores": scores_by_prompt,
+                    })
+
+                    clip_batch_results.append(sim)
+            else:
+                clip_batch_results = [None] * batch_count
+
+            # Process each frame in the batch with scene, nudenet and accumulated clip results
+            for idx, it in enumerate(items):
                 samples_processed += 1
                 current_detections: Dict[str, float] = {}
+                f_idx = it["frame_idx"]
+                pil_img = it["pil_img"]
+                frame_bgr = it["frame_bgr"]
 
-                rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(rgb_img)
+                # A. Falconsai Scene Classifier
+                if use_scene_model and scene_pipe is not None:
+                    scene_preds = scene_pipe(pil_img)
+                    for p in scene_preds:
+                        if p["label"].lower() == "nsfw" and p["score"] >= scene_conf_threshold:
+                            current_detections["INTIMATE_SCENE"] = float(p["score"])
 
-                # 1. Scene Classifier
-                scene_preds = scene_pipe(pil_img)
-                for p in scene_preds:
-                    if p["label"].lower() == "nsfw" and p["score"] >= scene_conf_threshold:
-                        current_detections["INTIMATE_SCENE"] = float(p["score"])
+                # B. CLIP detections from batch calculation
+                sim = clip_batch_results[idx]
+                if sim is not None:
+                    # Romance / Intimacy probability (kissing or foreplay)
+                    intimate_prob = max(sim[0], sim[1])
+                    if intimate_prob >= clip_conf_threshold:
+                        current_detections["ROMANCE_KISS"] = float(intimate_prob)
 
-                # 2. CLIP Prompt Inference
-                if use_clip and clip_model is not None and clip_preprocess is not None:
-                    with torch.no_grad():
-                        img_tensor = clip_preprocess(pil_img).unsqueeze(0)
-                        image_features = clip_model.encode_image(img_tensor)
-                        image_features /= image_features.norm(dim=-1, keepdim=True)
-                        similarity = (100.0 * image_features @ clip_text_features.T).softmax(dim=-1)[0].cpu().tolist()
+                    # Nudity / bare skin from prompt 2 if scene model is disabled
+                    nudity_prompt_prob = sim[2]
+                    if not use_scene_model and nudity_prompt_prob >= clip_conf_threshold:
+                        current_detections["INTIMATE_SCENE"] = float(nudity_prompt_prob)
 
-                        scores_by_prompt = {prompt: round(float(similarity[i]), 4) for i, prompt in enumerate(prompt_texts)}
-                        best_match = max(scores_by_prompt.items(), key=lambda x: x[1])
+                    # Violence (prompt 4)
+                    violence_prob = sim[4]
+                    if violence_prob >= clip_conf_threshold:
+                        current_detections["VIOLENCE"] = float(violence_prob)
 
-                        # Save structured CLIP log entry for the frame
-                        curr_sec = format_seconds(frame_idx / video_fps)
-                        clip_logs.append({
-                            "timestamp_sec": curr_sec,
-                            "top_description": best_match[0],
-                            "top_confidence": best_match[1],
-                            "all_prompt_scores": scores_by_prompt,
-                        })
+                    # Gunfire / Explosion (prompt 5)
+                    gunfire_prob = sim[5]
+                    if gunfire_prob >= clip_conf_threshold:
+                        current_detections["GUNFIRE_EXPLOSION"] = float(gunfire_prob)
 
-                        # Romance / Intimacy probability (kissing or foreplay)
-                        intimate_prob = max(similarity[0], similarity[1])
-                        if intimate_prob >= clip_conf_threshold:
-                            current_detections["ROMANCE_KISS"] = float(intimate_prob)
+                    # Blood / Gore (prompt 6)
+                    blood_prob = sim[6]
+                    if blood_prob >= clip_conf_threshold:
+                        current_detections["BLOOD_GORE"] = float(blood_prob)
 
-                        # Violence / Physical fight probability (prompt 4)
-                        violence_prob = similarity[4]
-                        if violence_prob >= clip_conf_threshold:
-                            current_detections["VIOLENCE"] = float(violence_prob)
+                    # Smoking (prompt 7)
+                    smoking_prob = sim[7]
+                    effective_smoking_threshold = min(clip_conf_threshold, 0.48)
+                    if smoking_prob >= effective_smoking_threshold:
+                        current_detections["SMOKING"] = float(smoking_prob)
 
-                        # Gunfire / Explosion / Blasts probability (prompt 5)
-                        gunfire_prob = similarity[5]
-                        if gunfire_prob >= clip_conf_threshold:
-                            current_detections["GUNFIRE_EXPLOSION"] = float(gunfire_prob)
+                    # Alcohol (prompt 8)
+                    alcohol_prob = sim[8]
+                    if alcohol_prob >= clip_conf_threshold:
+                        current_detections["ALCOHOL"] = float(alcohol_prob)
 
-                        # Blood / Gore / Injury probability (prompt 6)
-                        blood_prob = similarity[6]
-                        if blood_prob >= clip_conf_threshold:
-                            current_detections["BLOOD_GORE"] = float(blood_prob)
+                # C. NudeNet Anatomical Part Detector
+                if use_nudenet_model and part_detector is not None:
+                    part_preds = part_detector.detect(frame_bgr)
+                    for det in part_preds:
+                        cls_name = det["class"]
+                        score = float(det["score"])
+                        if cls_name in tracked_part_keys and score >= part_conf_threshold:
+                            if cls_name not in current_detections or score > current_detections[cls_name]:
+                                current_detections[cls_name] = score
 
-                        # Smoking / Cigarette probability (prompt 7: smoking, holding in hand, in mouth)
-                        smoking_prob = similarity[7]
-                        # Cigarettes occupy small image area, so allow a responsive threshold (min 0.45 or clip_conf_threshold - 0.10)
-                        effective_smoking_threshold = min(clip_conf_threshold, 0.48)
-                        if smoking_prob >= effective_smoking_threshold:
-                            current_detections["SMOKING"] = float(smoking_prob)
-
-                        # Alcohol / Drinking probability (prompt 8)
-                        alcohol_prob = similarity[8]
-                        if alcohol_prob >= clip_conf_threshold:
-                            current_detections["ALCOHOL"] = float(alcohol_prob)
-
-                # 3. Anatomical Part Detector
-                part_preds = part_detector.detect(frame)
-                for det in part_preds:
-                    cls_name = det["class"]
-                    score = float(det["score"])
-                    if cls_name in tracked_part_keys and score >= part_conf_threshold:
-                        if cls_name not in current_detections or score > current_detections[cls_name]:
-                            current_detections[cls_name] = score
-
-                # 4. State Machine Update
+                # D. State Machine Update
                 for key in all_tracked_keys:
-                    current_event = active_events[key]
+                    current_event = active_events.get(key)
                     is_hit = key in current_detections
                     display_name = CATEGORY_LABELS.get(key, key)
 
@@ -512,13 +566,13 @@ def process_video_moderation_full(
                             active_events[key] = ActiveEvent(
                                 category=key,
                                 label_display=display_name,
-                                start_frame=frame_idx,
-                                last_detected_frame=frame_idx,
+                                start_frame=f_idx,
+                                last_detected_frame=f_idx,
                                 peak_confidence=conf,
                                 gap_count=0,
                             )
                         else:
-                            current_event.last_detected_frame = frame_idx
+                            current_event.last_detected_frame = f_idx
                             current_event.gap_count = 0
                             if conf > current_event.peak_confidence:
                                 current_event.peak_confidence = conf
@@ -528,7 +582,7 @@ def process_video_moderation_full(
                             if current_event.gap_count > max_gap_steps:
                                 close_event(key)
 
-                # Render dynamic in-place terminal progress bar
+                # Dynamic terminal progress bar
                 elapsed = time.time() - start_time
                 progress_ratio = min(1.0, samples_processed / max(1, expected_samples))
                 fps_rate = samples_processed / elapsed if elapsed > 0 else 0
@@ -546,13 +600,40 @@ def process_video_moderation_full(
                 )
                 sys.stdout.flush()
 
+        # Video ingestion loop
+        effective_batch_size = max(1, clip_batch_size) if use_clip_model else 8
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_step == 0:
+                rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb_img)
+
+                batch_items.append({
+                    "frame_idx": frame_idx,
+                    "frame_bgr": frame.copy(),
+                    "pil_img": pil_img,
+                })
+
+                if len(batch_items) >= effective_batch_size:
+                    process_batch(batch_items)
+                    batch_items.clear()
+
             frame_idx += 1
+
+        # Process any remaining frames in the last partial batch
+        if batch_items:
+            process_batch(batch_items)
+            batch_items.clear()
 
         sys.stdout.write("\n")
         sys.stdout.flush()
 
         for k in all_tracked_keys:
-            if active_events[k] is not None:
+            if active_events.get(k) is not None:
                 close_event(k)
 
         # 1. Merge adjacent splits of same category (raw category intervals)
@@ -614,7 +695,7 @@ def process_video_moderation_full(
             print(f"[Timeline Data] Exported category-wise timeline into '{out_file}'!")
 
         # Save detailed raw CLIP model descriptions JSON if requested
-        if output_clip_json_path:
+        if output_clip_json_path and use_clip_model:
             clip_file = Path(output_clip_json_path)
             clip_file.parent.mkdir(parents=True, exist_ok=True)
             with open(clip_file, "w", encoding="utf-8") as f:
@@ -629,7 +710,7 @@ def process_video_moderation_full(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Overlapping Scene Moderation with Continuous Video Chapters"
+        description="Overlapping Scene Moderation with Continuous Video Chapters and CLIP Frame Batching"
     )
     parser.add_argument("video_path", type=str, help="Path to input video file")
     parser.add_argument(
@@ -637,6 +718,34 @@ if __name__ == "__main__":
         type=float,
         default=1.0,
         help="Sampling rate in frames per second (default: 1.0)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Batch size of frames passed to CLIP encoder at once (e.g. 8, 16, 32; default: 16)",
+    )
+    # Model Selection Flags
+    parser.add_argument(
+        "--models",
+        type=str,
+        default="scene,nudenet,clip",
+        help="Comma-separated list of models to execute: 'scene', 'nudenet', 'clip' or 'all' (default: all three)",
+    )
+    parser.add_argument(
+        "--no-scene",
+        action="store_true",
+        help="Disable Falconsai NSFW scene classifier",
+    )
+    parser.add_argument(
+        "--no-nudenet",
+        action="store_true",
+        help="Disable NudeNet anatomical body part detector",
+    )
+    parser.add_argument(
+        "--no-clip",
+        action="store_true",
+        help="Disable OpenCLIP vision-language model",
     )
     parser.add_argument(
         "--bridge-gap",
@@ -683,13 +792,25 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Determine which models to run
+    selected_models = set(m.strip().lower() for m in args.models.split(",") if m.strip())
+    is_all = "all" in selected_models
+
+    use_scene = (is_all or "scene" in selected_models) and not args.no_scene
+    use_nudenet = (is_all or "nudenet" in selected_models) and not args.no_nudenet
+    use_clip = (is_all or "clip" in selected_models) and not args.no_clip
+
     timeline = process_video_moderation_full(
         video_path=args.video_path,
         sample_rate_fps=args.fps_sample,
-        bridge_gap_sec=args.bridge_gap,
         scene_conf_threshold=args.scene_conf,
         part_conf_threshold=args.part_conf,
         clip_conf_threshold=args.clip_conf,
+        bridge_gap_sec=args.bridge_gap,
+        use_scene_model=use_scene,
+        use_nudenet_model=use_nudenet,
+        use_clip_model=use_clip,
+        clip_batch_size=args.batch_size,
         output_video_path=args.output_video,
         output_json_path=args.output,
         output_clip_json_path=args.clip_output,

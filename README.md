@@ -33,6 +33,11 @@ python adult_moderation.py "path/to/video.mp4" --fps-sample 1.0 --output timelin
 
 ### CLI Options:
 - `--fps-sample`: Number of frames to sample per second (default: `1.0`).
+- `--batch-size`: Batch size of sampled frames fed into the CLIP image encoder simultaneously (e.g. `8`, `16`, `32`; default: `16`).
+- `--models`: Comma-separated list of active models to execute: `'scene'`, `'nudenet'`, `'clip'`, or `'all'` (default: `'scene,nudenet,clip'`).
+- `--no-scene`: Flag to disable Falconsai NSFW scene classifier.
+- `--no-nudenet`: Flag to disable NudeNet anatomical body part detector.
+- `--no-clip`: Flag to disable OpenCLIP vision-language model.
 - `--bridge-gap`: Maximum gap in seconds to bridge into continuous scene blocks (default: `3.5`).
 - `--scene-conf`: Intimate scene confidence threshold (default: `0.40`).
 - `--part-conf`: Anatomical part confidence threshold (default: `0.35`).

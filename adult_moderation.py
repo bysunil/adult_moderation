@@ -87,6 +87,43 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r"[^\w\-_\. ]", "_", name).replace(" ", "_")
 
 
+def merge_adjacent_events(
+    events: List[Dict[str, Any]],
+    max_merge_gap_sec: float = 3.5,
+) -> List[Dict[str, Any]]:
+    """
+    Merges adjacent fragments belonging to the same category within max_merge_gap_sec.
+    """
+    if not events:
+        return []
+
+    events_by_cat: Dict[str, List[Dict[str, Any]]] = {}
+    for ev in events:
+        cat = ev["raw_label"]
+        events_by_cat.setdefault(cat, []).append(ev)
+
+    merged_all: List[Dict[str, Any]] = []
+
+    for cat, cat_events in events_by_cat.items():
+        cat_events.sort(key=lambda x: x["start_time"])
+        merged_cat: List[Dict[str, Any]] = []
+
+        curr = cat_events[0].copy()
+        for next_ev in cat_events[1:]:
+            if next_ev["start_time"] <= (curr["end_time"] + max_merge_gap_sec):
+                curr["end_time"] = max(curr["end_time"], next_ev["end_time"])
+                curr["peak_confidence"] = max(curr["peak_confidence"], next_ev["peak_confidence"])
+            else:
+                merged_cat.append(curr)
+                curr = next_ev.copy()
+
+        merged_cat.append(curr)
+        merged_all.extend(merged_cat)
+
+    merged_all.sort(key=lambda x: (x["start_time"], x["end_time"]))
+    return merged_all
+
+
 def merge_overlapping_intervals(
     events: List[Dict[str, Any]],
     tolerance_sec: float = 2.0,

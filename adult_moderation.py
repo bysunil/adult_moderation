@@ -1,0 +1,624 @@
+"""
+Comprehensive Video Content Moderation System with Overlapping Interval Merging
+and Continuous Full-Timeline Chapter Metadata.
+
+Key Highlights:
+1. Complete Overlap Interval Merging:
+   - Any intervals that overlap in time (e.g., Kissing from 30s-90s and Bed Scene from 41s-63s)
+     are merged into a single consolidated master scene (30s-90s) whose primary label reflects
+     the most severe violation and whose `sub_events` contain all overlapping constituent details.
+2. Full Gap-Free Video Chapters:
+   - Intervening safe/unflagged periods are explicitly tagged as "Normal / Safe Content".
+   - Viewers can jump between "Normal Scene" and "Intimate / Nude Scene" across the entire video seekbar.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import cv2
+import imageio_ffmpeg
+import numpy as np
+import open_clip
+from PIL import Image
+import torch
+from transformers import pipeline
+from nudenet import NudeDetector
+
+
+CATEGORY_LABELS = {
+    "FEMALE_GENITALIA_EXPOSED": "Exposed Genitalia",
+    "MALE_GENITALIA_EXPOSED": "Exposed Genitalia",
+    "FEMALE_BREAST_EXPOSED": "Exposed Breast / Nipple",
+    "BUTTOCKS_EXPOSED": "Exposed Buttocks",
+    "VIOLENCE": "Violence / Physical Fight",
+    "GUNFIRE_EXPLOSION": "Gunfire / Explosion / Weapons",
+    "BLOOD_GORE": "Blood / Gore / Injury",
+    "INTIMATE_SCENE": "Intimate / NSFW Scene",
+    "ROMANCE_KISS": "Kissing / Romantic Intimacy",
+    "SMOKING": "Cigarette / Tobacco Smoking",
+    "ALCOHOL": "Alcohol Consumption / Drinking",
+    "BELLY_EXPOSED": "Bareback / Exposed Midriff",
+    "ARMPITS_EXPOSED": "Exposed Skin / Armpits",
+}
+
+# Severity rank for primary scene label choice
+SEVERITY_ORDER = {
+    "FEMALE_GENITALIA_EXPOSED": 100,
+    "MALE_GENITALIA_EXPOSED": 100,
+    "FEMALE_BREAST_EXPOSED": 90,
+    "BUTTOCKS_EXPOSED": 80,
+    "BLOOD_GORE": 78,
+    "GUNFIRE_EXPLOSION": 76,
+    "VIOLENCE": 75,
+    "INTIMATE_SCENE": 70,
+    "ROMANCE_KISS": 60,
+    "SMOKING": 55,
+    "ALCOHOL": 52,
+    "BELLY_EXPOSED": 50,
+    "ARMPITS_EXPOSED": 30,
+}
+
+
+@dataclass
+class ActiveEvent:
+    category: str
+    label_display: str
+    start_frame: int
+    last_detected_frame: int
+    peak_confidence: float
+    gap_count: int = 0
+
+
+def format_seconds(seconds: float) -> float:
+    return round(float(seconds), 2)
+
+
+def sanitize_filename(name: str) -> str:
+    return re.sub(r"[^\w\-_\. ]", "_", name).replace(" ", "_")
+
+
+def merge_overlapping_intervals(
+    events: List[Dict[str, Any]],
+    tolerance_sec: float = 2.0,
+) -> List[Dict[str, Any]]:
+    """
+    Finds ANY intervals that overlap in time (even across different categories)
+    and merges them into a single overarching master scene.
+    Nested sub-events are placed inside `sub_events`.
+    """
+    if not events:
+        return []
+
+    # Sort all raw events purely by start_time
+    sorted_events = sorted(events, key=lambda x: (x["start_time"], x["end_time"]))
+
+    merged_clusters: List[Dict[str, Any]] = []
+
+    for ev in sorted_events:
+        item = {
+            "content_type": ev["content_type"],
+            "raw_label": ev["raw_label"],
+            "start_time": ev["start_time"],
+            "end_time": ev["end_time"],
+            "peak_confidence": ev["peak_confidence"],
+        }
+
+        if not merged_clusters:
+            merged_clusters.append({
+                "start_time": item["start_time"],
+                "end_time": item["end_time"],
+                "items": [item],
+            })
+            continue
+
+        prev = merged_clusters[-1]
+        # Overlapping condition: item starts before or within tolerance of previous cluster's end
+        if item["start_time"] <= (prev["end_time"] + tolerance_sec):
+            prev["end_time"] = max(prev["end_time"], item["end_time"])
+            prev["items"].append(item)
+        else:
+            merged_clusters.append({
+                "start_time": item["start_time"],
+                "end_time": item["end_time"],
+                "items": [item],
+            })
+
+    # Format each cluster into a primary master scene with nested sub-events
+    final_master_scenes: List[Dict[str, Any]] = []
+
+    for cluster in merged_clusters:
+        items = cluster["items"]
+        # Find item with highest severity to serve as primary scene label
+        primary_item = max(
+            items,
+            key=lambda x: (SEVERITY_ORDER.get(x["raw_label"], 0), x["peak_confidence"]),
+        )
+
+        # Sub-events are all constituent items
+        sub_events = [
+            i for i in items
+            if not (i["raw_label"] == primary_item["raw_label"]
+                    and i["start_time"] == primary_item["start_time"]
+                    and i["end_time"] == primary_item["end_time"])
+        ]
+        sub_events.sort(key=lambda x: x["start_time"])
+
+        master_scene = {
+            "content_type": primary_item["content_type"],
+            "raw_label": primary_item["raw_label"],
+            "start_time": format_seconds(cluster["start_time"]),
+            "end_time": format_seconds(cluster["end_time"]),
+            "peak_confidence": round(float(max(i["peak_confidence"] for i in items)), 4),
+            "sub_events": sub_events,
+        }
+        final_master_scenes.append(master_scene)
+
+    final_master_scenes.sort(key=lambda x: x["start_time"])
+    return final_master_scenes
+
+
+def embed_video_chapters(
+    input_video: Path,
+    output_video: Path,
+    timeline: List[Dict[str, Any]],
+    total_duration_sec: float,
+) -> None:
+    """
+    Creates complete, gap-free video chapters spanning the entire video.
+    Gaps between flagged scenes are explicitly marked as 'Normal Scene'.
+    """
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
+    # Build continuous sequence of chapters from 0 to total_duration_sec
+    chapters: List[Dict[str, Any]] = []
+    current_time = 0.0
+
+    for item in timeline:
+        s = float(item["start_time"])
+        e = float(item["end_time"])
+
+        # If there is a gap between current_time and the start of this flagged scene, insert Normal Scene
+        if s > current_time + 0.5:
+            chapters.append({
+                "start_time": format_seconds(current_time),
+                "end_time": format_seconds(s),
+                "title": "Normal Scene",
+            })
+
+        # Construct informative title for the flagged interval
+        title = item["content_type"]
+        if item.get("sub_events"):
+            sub_types = list(dict.fromkeys(
+                sub["content_type"] for sub in item["sub_events"]
+                if sub["content_type"] != item["content_type"]
+            ))
+            if sub_types:
+                title += f" ({', '.join(sub_types[:2])})"
+
+        chapters.append({
+            "start_time": format_seconds(s),
+            "end_time": format_seconds(e),
+            "title": title,
+        })
+        current_time = max(current_time, e)
+
+    # Trailing normal scene if video continues after last flagged event
+    if total_duration_sec > current_time + 0.5:
+        chapters.append({
+            "start_time": format_seconds(current_time),
+            "end_time": format_seconds(total_duration_sec),
+            "title": "Normal Scene",
+        })
+
+    # Generate FFMETADATA
+    lines = [";FFMETADATA1", "major_brand=isom", "minor_version=512", "compatible_brands=isomiso2avc1mp41"]
+    for ch in chapters:
+        start_ms = int(ch["start_time"] * 1000)
+        end_ms = int(ch["end_time"] * 1000)
+        if end_ms <= start_ms:
+            end_ms = start_ms + 1000
+
+        lines.extend([
+            "[CHAPTER]",
+            "TIMEBASE=1/1000",
+            f"START={start_ms}",
+            f"END={end_ms}",
+            f"title={ch['title']}",
+        ])
+
+    metadata_text = "\n".join(lines) + "\n"
+
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8") as meta_f:
+        meta_f.write(metadata_text)
+        meta_file_path = meta_f.name
+
+    try:
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-i", str(input_video),
+            "-i", meta_file_path,
+            "-map_metadata", "1",
+            "-codec", "copy",
+            str(output_video),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if res.returncode != 0:
+            print(f"[Chapter Embedding Error] {res.stderr}")
+        else:
+            print(f"[Chapter Metadata] Embedded {len(chapters)} seamless chapters across the entire timeline into '{output_video}'!")
+    finally:
+        Path(meta_file_path).unlink(missing_ok=True)
+
+
+def process_video_moderation_full(
+    video_path: str | Path,
+    sample_rate_fps: float = 1.0,
+    scene_conf_threshold: float = 0.40,
+    part_conf_threshold: float = 0.35,
+    clip_conf_threshold: float = 0.60,
+    bridge_gap_sec: float = 3.5,
+    min_duration_sec: float = 0.5,
+    include_covered: bool = True,
+    use_clip: bool = True,
+    embed_chapters: bool = True,
+    output_video_path: Optional[str | Path] = None,
+    output_json_path: Optional[str | Path] = None,
+    output_clip_json_path: Optional[str | Path] = None,
+) -> List[Dict[str, Any]]:
+    video_path = Path(video_path)
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video file not found at: {video_path}")
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise ValueError(f"OpenCV failed to open video file: {video_path}")
+
+    try:
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if video_fps <= 0.0 or not (0 < video_fps < 1000):
+            video_fps = 24.0
+
+        duration_sec = total_frames / video_fps
+        print(f"\n[Video Ingestion] Video FPS: {video_fps:.2f} | Total Frames: {total_frames} | Duration: {duration_sec:.1f}s (~{int(duration_sec//60)}m {int(duration_sec%60)}s)")
+
+        frame_step = max(1, round(video_fps / sample_rate_fps))
+        expected_samples = total_frames // frame_step
+        max_gap_steps = max(2, round(bridge_gap_sec * sample_rate_fps))
+
+        print(f"[Sampling Strategy] Rate: {sample_rate_fps:.1f} FPS (every {frame_step} frames). Smoothing: {bridge_gap_sec}s.")
+
+        print("[Model Loading] 1/3: Initializing Falconsai NSFW Scene Classifier...")
+        scene_pipe = pipeline("image-classification", model="Falconsai/nsfw_image_detection", device=-1)
+
+        print("[Model Loading] 2/3: Initializing NudeNet Anatomical Part Detector...")
+        part_detector = NudeDetector()
+
+        clip_model, clip_preprocess, clip_text_tokens = None, None, None
+        clip_logs: List[Dict[str, Any]] = []
+        if use_clip:
+            print("[Model Loading] 3/3: Initializing OpenCLIP ViT-B-32 Vision-Language Engine...")
+            clip_model, _, clip_preprocess = open_clip.create_model_and_transforms(
+                "ViT-B-32", pretrained="laion2b_s34b_b79k"
+            )
+            clip_model.eval()
+            tokenizer = open_clip.get_tokenizer("ViT-B-32")
+            prompt_texts = [
+                "a photo of passionate kissing or romantic intimacy",
+                "a photo of sensual foreplay or sexual act",
+                "a photo of nudity, bare skin, naked body or undressing",
+                "a photo of a regular movie scene or normal conversation with clothed people",
+                "a photo of violence, physical fight, assault or beating",
+                "a photo of gun fire, shooting with guns, explosion, blast or weapons",
+                "a photo of blood stains, injury, wound or gory scene",
+                "a photo of smoking a cigarette, cigar, vape, exhaling smoke, cigarette in mouth, holding a cigarette or lighter",
+                "a photo of drinking alcohol, wine, beer, whiskey, holding an alcoholic drink or liquor bottle",
+            ]
+            clip_text_tokens = tokenizer(prompt_texts)
+            with torch.no_grad():
+                clip_text_features = clip_model.encode_text(clip_text_tokens)
+                clip_text_features /= clip_text_features.norm(dim=-1, keepdim=True)
+
+        print("[Model Loading] All models successfully loaded.\n")
+
+        # Strictly bare skin / exposed anatomical parts (never fully clothed)
+        tracked_part_keys = [
+            "FEMALE_BREAST_EXPOSED",
+            "FEMALE_GENITALIA_EXPOSED",
+            "MALE_GENITALIA_EXPOSED",
+            "BUTTOCKS_EXPOSED",
+            "BELLY_EXPOSED",
+        ]
+
+        all_tracked_keys = ["INTIMATE_SCENE"]
+        if use_clip:
+            all_tracked_keys.extend([
+                "ROMANCE_KISS",
+                "VIOLENCE",
+                "GUNFIRE_EXPLOSION",
+                "BLOOD_GORE",
+                "SMOKING",
+                "ALCOHOL",
+            ])
+        all_tracked_keys.extend(tracked_part_keys)
+
+        active_events: Dict[str, Optional[ActiveEvent]] = {k: None for k in all_tracked_keys}
+        raw_timeline: List[Dict[str, Any]] = []
+
+        interval_frames = frame_step
+
+        def close_event(key: str) -> None:
+            event = active_events[key]
+            if not event:
+                return
+
+            start_sec = event.start_frame / video_fps
+            end_sec = (event.last_detected_frame + interval_frames) / video_fps
+            duration = end_sec - start_sec
+
+            if duration >= min_duration_sec:
+                raw_timeline.append(
+                    {
+                        "content_type": event.label_display,
+                        "raw_label": key,
+                        "start_time": format_seconds(start_sec),
+                        "end_time": format_seconds(end_sec),
+                        "peak_confidence": round(float(event.peak_confidence), 4),
+                    }
+                )
+
+            active_events[key] = None
+
+        frame_idx = 0
+        samples_processed = 0
+        start_time = time.time()
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_step == 0:
+                samples_processed += 1
+                current_detections: Dict[str, float] = {}
+
+                rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(rgb_img)
+
+                # 1. Scene Classifier
+                scene_preds = scene_pipe(pil_img)
+                for p in scene_preds:
+                    if p["label"].lower() == "nsfw" and p["score"] >= scene_conf_threshold:
+                        current_detections["INTIMATE_SCENE"] = float(p["score"])
+
+                # 2. CLIP Prompt Inference
+                if use_clip and clip_model is not None and clip_preprocess is not None:
+                    with torch.no_grad():
+                        img_tensor = clip_preprocess(pil_img).unsqueeze(0)
+                        image_features = clip_model.encode_image(img_tensor)
+                        image_features /= image_features.norm(dim=-1, keepdim=True)
+                        similarity = (100.0 * image_features @ clip_text_features.T).softmax(dim=-1)[0].cpu().tolist()
+
+                        scores_by_prompt = {prompt: round(float(similarity[i]), 4) for i, prompt in enumerate(prompt_texts)}
+                        best_match = max(scores_by_prompt.items(), key=lambda x: x[1])
+
+                        # Save structured CLIP log entry for the frame
+                        curr_sec = format_seconds(frame_idx / video_fps)
+                        clip_logs.append({
+                            "timestamp_sec": curr_sec,
+                            "top_description": best_match[0],
+                            "top_confidence": best_match[1],
+                            "all_prompt_scores": scores_by_prompt,
+                        })
+
+                        # Romance / Intimacy probability (kissing or foreplay)
+                        intimate_prob = max(similarity[0], similarity[1])
+                        if intimate_prob >= clip_conf_threshold:
+                            current_detections["ROMANCE_KISS"] = float(intimate_prob)
+
+                        # Violence / Physical fight probability (prompt 4)
+                        violence_prob = similarity[4]
+                        if violence_prob >= clip_conf_threshold:
+                            current_detections["VIOLENCE"] = float(violence_prob)
+
+                        # Gunfire / Explosion / Blasts probability (prompt 5)
+                        gunfire_prob = similarity[5]
+                        if gunfire_prob >= clip_conf_threshold:
+                            current_detections["GUNFIRE_EXPLOSION"] = float(gunfire_prob)
+
+                        # Blood / Gore / Injury probability (prompt 6)
+                        blood_prob = similarity[6]
+                        if blood_prob >= clip_conf_threshold:
+                            current_detections["BLOOD_GORE"] = float(blood_prob)
+
+                        # Smoking / Cigarette probability (prompt 7: smoking, holding in hand, in mouth)
+                        smoking_prob = similarity[7]
+                        # Cigarettes occupy small image area, so allow a responsive threshold (min 0.45 or clip_conf_threshold - 0.10)
+                        effective_smoking_threshold = min(clip_conf_threshold, 0.48)
+                        if smoking_prob >= effective_smoking_threshold:
+                            current_detections["SMOKING"] = float(smoking_prob)
+
+                        # Alcohol / Drinking probability (prompt 8)
+                        alcohol_prob = similarity[8]
+                        if alcohol_prob >= clip_conf_threshold:
+                            current_detections["ALCOHOL"] = float(alcohol_prob)
+
+                # 3. Anatomical Part Detector
+                part_preds = part_detector.detect(frame)
+                for det in part_preds:
+                    cls_name = det["class"]
+                    score = float(det["score"])
+                    if cls_name in tracked_part_keys and score >= part_conf_threshold:
+                        if cls_name not in current_detections or score > current_detections[cls_name]:
+                            current_detections[cls_name] = score
+
+                # 4. State Machine Update
+                for key in all_tracked_keys:
+                    current_event = active_events[key]
+                    is_hit = key in current_detections
+                    display_name = CATEGORY_LABELS.get(key, key)
+
+                    if is_hit:
+                        conf = current_detections[key]
+                        if current_event is None:
+                            active_events[key] = ActiveEvent(
+                                category=key,
+                                label_display=display_name,
+                                start_frame=frame_idx,
+                                last_detected_frame=frame_idx,
+                                peak_confidence=conf,
+                                gap_count=0,
+                            )
+                        else:
+                            current_event.last_detected_frame = frame_idx
+                            current_event.gap_count = 0
+                            if conf > current_event.peak_confidence:
+                                current_event.peak_confidence = conf
+                    else:
+                        if current_event is not None:
+                            current_event.gap_count += 1
+                            if current_event.gap_count > max_gap_steps:
+                                close_event(key)
+
+                # Render dynamic in-place terminal progress bar
+                elapsed = time.time() - start_time
+                progress_ratio = min(1.0, samples_processed / max(1, expected_samples))
+                fps_rate = samples_processed / elapsed if elapsed > 0 else 0
+                eta_sec = int((expected_samples - samples_processed) / fps_rate) if fps_rate > 0 else 0
+
+                bar_len = 30
+                filled = int(bar_len * progress_ratio)
+                bar = "█" * filled + "░" * (bar_len - filled)
+                pct_str = f"{progress_ratio * 100:5.1f}%"
+                active_count = sum(1 for v in active_events.values() if v is not None)
+
+                sys.stdout.write(
+                    f"\r[{bar}] {pct_str} | {samples_processed}/{expected_samples} frames "
+                    f"[{int(elapsed)}s<{eta_sec}s, {fps_rate:.1f} it/s] | Active violations: {active_count}"
+                )
+                sys.stdout.flush()
+
+            frame_idx += 1
+
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+        for k in all_tracked_keys:
+            if active_events[k] is not None:
+                close_event(k)
+
+        # Merge ALL overlapping intervals across categories
+        consolidated_timeline = merge_overlapping_intervals(raw_timeline, tolerance_sec=bridge_gap_sec)
+        print(f"\n[Timeline Consolidation] Merged overlapping violations into {len(consolidated_timeline)} unified parent scenes.")
+
+        # Embed continuous chapters across entire video timeline
+        if embed_chapters:
+            target_video = Path(output_video_path) if output_video_path else video_path.with_name(f"{video_path.stem}_with_chapters.mp4")
+            embed_video_chapters(
+                input_video=video_path,
+                output_video=target_video,
+                timeline=consolidated_timeline,
+                total_duration_sec=duration_sec,
+            )
+
+        if output_json_path:
+            out_file = Path(output_json_path)
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump(consolidated_timeline, f, indent=2)
+
+        # Save detailed raw CLIP model descriptions JSON if requested
+        if output_clip_json_path:
+            clip_file = Path(output_clip_json_path)
+            clip_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(clip_file, "w", encoding="utf-8") as f:
+                json.dump(clip_logs, f, indent=2)
+            print(f"[CLIP Log Data] Saved detailed CLIP model text descriptions into '{clip_file}'!")
+
+        return consolidated_timeline
+
+    finally:
+        cap.release()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Overlapping Scene Moderation with Continuous Video Chapters"
+    )
+    parser.add_argument("video_path", type=str, help="Path to input video file")
+    parser.add_argument(
+        "--fps-sample",
+        type=float,
+        default=1.0,
+        help="Sampling rate in frames per second (default: 1.0)",
+    )
+    parser.add_argument(
+        "--bridge-gap",
+        type=float,
+        default=3.5,
+        help="Gap tolerance in seconds to merge scenes (default: 3.5s)",
+    )
+    parser.add_argument(
+        "--scene-conf",
+        type=float,
+        default=0.40,
+        help="Confidence threshold for intimate/NSFW scenes (default: 0.40)",
+    )
+    parser.add_argument(
+        "--part-conf",
+        type=float,
+        default=0.35,
+        help="Confidence threshold for anatomical body parts (default: 0.35)",
+    )
+    parser.add_argument(
+        "--clip-conf",
+        type=float,
+        default=0.60,
+        help="Confidence threshold for CLIP romance/kissing (default: 0.60)",
+    )
+    parser.add_argument(
+        "--output-video",
+        type=str,
+        default=None,
+        help="Target video file with chapters (default: [name]_with_chapters.mp4)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="timeline.json",
+        help="Output path for JSON timeline",
+    )
+    parser.add_argument(
+        "--clip-output",
+        type=str,
+        default="clip_descriptions.json",
+        help="Output path to export detailed raw CLIP text descriptions JSON (default: clip_descriptions.json)",
+    )
+
+    args = parser.parse_args()
+
+    timeline = process_video_moderation_full(
+        video_path=args.video_path,
+        sample_rate_fps=args.fps_sample,
+        bridge_gap_sec=args.bridge_gap,
+        scene_conf_threshold=args.scene_conf,
+        part_conf_threshold=args.part_conf,
+        clip_conf_threshold=args.clip_conf,
+        output_video_path=args.output_video,
+        output_json_path=args.output,
+        output_clip_json_path=args.clip_output,
+    )
+
+    print("\n--- Consolidated Moderation Timeline ---")
+    print(json.dumps(timeline, indent=2))

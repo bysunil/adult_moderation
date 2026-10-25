@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.mp4
+*.mkv
+*.avi
+*.mov
+.env
+.venv/
+env/
+clips/
